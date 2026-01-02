@@ -11,12 +11,15 @@ import lime
 import lime.lime_text
 import shap
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 import joblib
 import os
 
 # --- NLTK Data Download and Setup ---
 @st.cache_resource
 def setup_nltk():
+    """Downloads necessary NLTK data and returns lemmatizer and stopwords."""
     nltk_packages = [
         ('tokenizers/punkt', 'punkt'),
         ('tokenizers/punkt_tab', 'punkt_tab'),
@@ -52,19 +55,15 @@ def load_model_and_vectorizer(model_path="model.joblib", vectorizer_path="vector
     """Loads saved model and vectorizer."""
     if not os.path.exists(model_path):
         st.error(f"❌ Model file not found: {model_path}")
-        st.info("Please ensure you have trained the model and saved it as 'model.joblib'")
         st.stop()
     
     if not os.path.exists(vectorizer_path):
         st.error(f"❌ Vectorizer file not found: {vectorizer_path}")
-        st.info("Please ensure you have saved the TF-IDF vectorizer as 'vectorizer.joblib'")
         st.stop()
     
-    # Load model and vectorizer using joblib
     model = joblib.load(model_path)
     tfidf_vectorizer = joblib.load(vectorizer_path)
     
-    # Load training data for SHAP background (optional, but improves SHAP)
     train_df = None
     if os.path.exists(train_path):
         try:
@@ -74,9 +73,8 @@ def load_model_and_vectorizer(model_path="model.joblib", vectorizer_path="vector
             train_df['label'] = train_df['label'].astype(int)
             train_df['cleaned_text'] = train_df['text'].apply(preprocess_text)
             train_df = train_df[train_df['cleaned_text'].str.strip() != '']
-        except Exception as e:
-            st.warning(f"Could not load training data for SHAP: {e}")
-            st.info("SHAP explanations may be slower without background data.")
+        except:
+            pass
     
     return tfidf_vectorizer, model, train_df
 
@@ -97,14 +95,237 @@ def predict_proba_for_lime(texts, vectorizer, model):
     tfidf_vectors = vectorizer.transform(cleaned_texts)
     return model.predict_proba(tfidf_vectors)
 
+# --- Custom LIME Visualization ---
+def plot_lime_explanation(lime_exp, prediction):
+    """Create a custom Plotly visualization for LIME."""
+    # Get feature weights
+    exp_list = lime_exp.as_list()
+    
+    # Separate by class
+    words = [item[0] for item in exp_list]
+    weights = [item[1] for item in exp_list]
+    
+    # Create color scheme based on prediction direction
+    colors = ['#ef4444' if w < 0 else '#10b981' for w in weights]
+    
+    # Create horizontal bar chart
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        y=words[::-1],  # Reverse to show most important at top
+        x=weights[::-1],
+        orientation='h',
+        marker=dict(
+            color=colors[::-1],
+            line=dict(color='rgba(0,0,0,0.3)', width=1)
+        ),
+        text=[f'{w:.3f}' for w in weights[::-1]],
+        textposition='outside',
+        hovertemplate='<b>%{y}</b><br>Weight: %{x:.4f}<extra></extra>'
+    ))
+    
+    fig.update_layout(
+        title=dict(
+            text='Feature Importance',
+            font=dict(size=20, color='#1f2937')
+        ),
+        xaxis_title='Impact on Prediction',
+        yaxis_title='',
+        height=500,
+        margin=dict(l=20, r=20, t=60, b=40),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(size=12, color='#374151'),
+        xaxis=dict(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(0,0,0,0.1)',
+            zeroline=True,
+            zerolinewidth=2,
+            zerolinecolor='rgba(0,0,0,0.3)'
+        ),
+        yaxis=dict(
+            showgrid=False
+        )
+    )
+    
+    return fig
+
+# --- Custom SHAP Visualization ---
+def plot_shap_explanation(shap_values, feature_names, tfidf_input, predicted_class):
+    """Create a custom Plotly visualization for SHAP."""
+    # Get non-zero features
+    non_zero_idx = tfidf_input.toarray()[0].nonzero()[0]
+    
+    if len(non_zero_idx) == 0:
+        return None
+    
+    # Get top features by absolute SHAP value
+    shap_vals = shap_values[predicted_class][0]
+    top_indices = np.argsort(np.abs(shap_vals[non_zero_idx]))[-15:][::-1]
+    
+    top_features = [feature_names[non_zero_idx[i]] for i in top_indices]
+    top_shap_values = [shap_vals[non_zero_idx[i]] for i in top_indices]
+    
+    # Create colors
+    colors = ['#ef4444' if v < 0 else '#10b981' for v in top_shap_values]
+    
+    # Create horizontal bar chart
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        y=top_features[::-1],
+        x=top_shap_values[::-1],
+        orientation='h',
+        marker=dict(
+            color=colors[::-1],
+            line=dict(color='rgba(0,0,0,0.3)', width=1)
+        ),
+        text=[f'{v:.3f}' for v in top_shap_values[::-1]],
+        textposition='outside',
+        hovertemplate='<b>%{y}</b><br>SHAP Value: %{x:.4f}<extra></extra>'
+    ))
+    
+    fig.update_layout(
+        title=dict(
+            text='Feature Impact',
+            font=dict(size=20, color='#1f2937')
+        ),
+        xaxis_title='SHAP Value',
+        yaxis_title='',
+        height=500,
+        margin=dict(l=20, r=20, t=60, b=40),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(size=12, color='#374151'),
+        xaxis=dict(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(0,0,0,0.1)',
+            zeroline=True,
+            zerolinewidth=2,
+            zerolinecolor='rgba(0,0,0,0.3)'
+        ),
+        yaxis=dict(
+            showgrid=False
+        )
+    )
+    
+    return fig
+
+# --- Word Highlighting Function ---
+def highlight_text_by_importance(text, lime_exp, max_words=50):
+    """Highlight words in text based on LIME importance."""
+    exp_dict = dict(lime_exp.as_list())
+    
+    words = text.split()
+    if len(words) > max_words:
+        words = words[:max_words]
+        truncated = True
+    else:
+        truncated = False
+    
+    highlighted_words = []
+    for word in words:
+        cleaned_word = preprocess_text(word)
+        
+        if cleaned_word in exp_dict:
+            weight = exp_dict[cleaned_word]
+            if weight > 0:
+                # Green for real news indicators
+                intensity = min(int(abs(weight) * 200), 200)
+                highlighted_words.append(
+                    f'<span style="background-color: rgba(16, 185, 129, {min(abs(weight) * 2, 0.8)}); '
+                    f'padding: 2px 4px; border-radius: 3px; margin: 2px;">{word}</span>'
+                )
+            else:
+                # Red for fake news indicators
+                intensity = min(int(abs(weight) * 200), 200)
+                highlighted_words.append(
+                    f'<span style="background-color: rgba(239, 68, 68, {min(abs(weight) * 2, 0.8)}); '
+                    f'padding: 2px 4px; border-radius: 3px; margin: 2px;">{word}</span>'
+                )
+        else:
+            highlighted_words.append(word)
+    
+    result = ' '.join(highlighted_words)
+    if truncated:
+        result += ' <span style="color: #6b7280;">...</span>'
+    
+    return result
+
+# --- LIME Explanation Function ---
+def generate_lime_explanation(news_article, vectorizer, model):
+    """Generate LIME explanation."""
+    try:
+        explainer = lime.lime_text.LimeTextExplainer(class_names=['Fake', 'Real'])
+        exp = explainer.explain_instance(
+            news_article,
+            lambda x: predict_proba_for_lime(x, vectorizer, model),
+            num_features=15,
+            num_samples=500
+        )
+        return exp
+    except Exception as e:
+        st.error(f"Error generating LIME explanation: {str(e)}")
+        return None
+
+# --- SHAP Explanation Function ---
+def generate_shap_explanation(news_article, vectorizer, model, train_df):
+    """Generate SHAP explanation."""
+    try:
+        if train_df is None:
+            st.warning("Training data not available for SHAP background.")
+            return None
+        
+        background_size = min(50, len(train_df))
+        background_data = train_df['cleaned_text'].sample(background_size, random_state=42).tolist()
+        background_tfidf = vectorizer.transform(background_data)
+        
+        shap_explainer = shap.KernelExplainer(
+            model.predict_proba, 
+            background_tfidf,
+            link="logit"
+        )
+        
+        cleaned_input = preprocess_text(news_article)
+        tfidf_input = vectorizer.transform([cleaned_input])
+        
+        shap_values = shap_explainer.shap_values(tfidf_input, nsamples=100)
+        
+        feature_names = vectorizer.get_feature_names_out()
+        predicted_class = model.predict(tfidf_input)[0]
+        
+        return shap_values, feature_names, tfidf_input, predicted_class
+    except Exception as e:
+        st.error(f"Error generating SHAP explanation: {str(e)}")
+        return None
+
 # --- Streamlit UI ---
 st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="📰")
 
-st.title("📰 Fake News Detector")
+# Custom CSS
 st.markdown("""
-This app uses a Multinomial Naive Bayes classifier trained on news articles to detect fake news.
-Enter an article below and get predictions with explanations using LIME and SHAP.
-""")
+<style>
+    .stMetric {
+        background-color: #f9fafb;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+    }
+    .highlighted-text {
+        font-size: 16px;
+        line-height: 1.8;
+        padding: 20px;
+        background-color: #f9fafb;
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+        margin: 20px 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("📰 Fake News Detector")
 
 # Load model and vectorizer
 with st.spinner("Loading model..."):
@@ -112,27 +333,11 @@ with st.spinner("Loading model..."):
 
 st.success("✅ Model loaded successfully!")
 
-# Input section
-st.markdown("---")
-st.subheader("Enter News Article")
-
-# Sample articles for testing
+# Sample articles
 with st.expander("📋 Try a sample article"):
-    sample_fake = """
-    BREAKING: Scientists Discover That The Earth Is Actually Flat After All! 
-    A team of researchers from the Institute of Revolutionary Science has announced 
-    shocking findings that contradict centuries of scientific consensus. Using advanced 
-    technology, they claim to have proven the Earth is flat. The government has been 
-    covering this up for years!
-    """
+    sample_fake = """BREAKING: Scientists Discover That The Earth Is Actually Flat After All! A team of researchers from the Institute of Revolutionary Science has announced shocking findings that contradict centuries of scientific consensus. Using advanced technology, they claim to have proven the Earth is flat. The government has been covering this up for years!"""
     
-    sample_real = """
-    WASHINGTON (Reuters) - The United States economy added 200,000 jobs last month, 
-    according to data released by the Bureau of Labor Statistics on Friday. The unemployment 
-    rate remained steady at 4.2 percent. Economists had predicted job growth of around 
-    180,000. The report suggests continued strength in the labor market despite concerns 
-    about rising interest rates.
-    """
+    sample_real = """WASHINGTON (Reuters) - The United States economy added 200,000 jobs last month, according to data released by the Bureau of Labor Statistics on Friday. The unemployment rate remained steady at 4.2 percent. Economists had predicted job growth of around 180,000. The report suggests continued strength in the labor market despite concerns about rising interest rates."""
     
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -143,10 +348,10 @@ with st.expander("📋 Try a sample article"):
             st.session_state['news_article'] = sample_real
 
 news_article = st.text_area(
-    "Paste your news article here:", 
-    height=250,
+    "Enter news article:", 
+    height=200,
     value=st.session_state.get('news_article', ''),
-    placeholder="Enter a news article to analyze..."
+    placeholder="Paste a news article to analyze..."
 )
 
 # Prediction section
@@ -162,7 +367,6 @@ if st.button("🔍 Analyze Article", type="primary"):
                 
                 # Display prediction
                 st.markdown("---")
-                st.subheader("📊 Prediction Results")
                 
                 col1, col2, col3 = st.columns([1, 1, 1])
                 
@@ -178,122 +382,45 @@ if st.button("🔍 Analyze Article", type="primary"):
                 with col3:
                     st.metric("Confidence (Real)", f"{proba[1]:.2%}")
                 
-                # Confidence bar
                 st.progress(proba[1])
-    else:
-        st.warning("⚠️ Please enter a news article to analyze.")
-
-# Explanation section
-st.markdown("---")
-st.subheader("🔬 Model Explanations")
-
-st.markdown("""
-**LIME** (Local Interpretable Model-agnostic Explanations) shows which words influenced the prediction by highlighting important features.
-
-**SHAP** (SHapley Additive exPlanations) provides a game-theory based approach to explain individual predictions.
-""")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    if st.button("📊 Generate LIME Explanation", use_container_width=True):
-        if news_article.strip():
-            with st.spinner("Generating LIME explanation... This may take a moment."):
-                try:
-                    explainer = lime.lime_text.LimeTextExplainer(class_names=['Fake', 'Real'])
-                    exp = explainer.explain_instance(
-                        news_article,
-                        lambda x: predict_proba_for_lime(x, tfidf_vectorizer, model),
-                        num_features=15,
-                        num_samples=500
+                
+                # Generate LIME explanation
+                st.markdown("---")
+                with st.spinner("Generating LIME explanation..."):
+                    lime_exp = generate_lime_explanation(news_article, tfidf_vectorizer, model)
+                
+                if lime_exp:
+                    # Show highlighted text
+                    st.subheader("📝 Text Analysis")
+                    highlighted_html = highlight_text_by_importance(news_article, lime_exp)
+                    st.markdown(
+                        f'<div class="highlighted-text">{highlighted_html}</div>',
+                        unsafe_allow_html=True
                     )
                     
-                    st.markdown("#### LIME Explanation")
-                    st.markdown("Words highlighted in **orange/red** indicate fake news, while **green/blue** indicate real news.")
-                    st.components.v1.html(exp.as_html(), height=500, scrolling=True)
+                    # Create two columns for visualizations
+                    col_lime, col_shap = st.columns(2)
                     
-                    # Show feature importance
-                    st.markdown("#### Top Contributing Features")
-                    fig = exp.as_pyplot_figure()
-                    st.pyplot(fig)
-                    plt.close()
+                    with col_lime:
+                        st.subheader("🔍 LIME Analysis")
+                        lime_fig = plot_lime_explanation(lime_exp, prediction)
+                        st.plotly_chart(lime_fig, use_container_width=True)
                     
-                except Exception as e:
-                    st.error(f"Error generating LIME explanation: {str(e)}")
-        else:
-            st.warning("⚠️ Please enter a news article first.")
-
-with col2:
-    if st.button("📈 Generate SHAP Explanation", use_container_width=True):
-        if news_article.strip():
-            with st.spinner("Generating SHAP explanation... This may take a moment."):
-                try:
-                    if train_df_processed is None:
-                        st.error("Training data not available for SHAP background.")
-                    else:
-                        # Prepare background data
-                        background_size = min(50, len(train_df_processed))
-                        background_data = train_df_processed['cleaned_text'].sample(
-                            background_size, random_state=42
-                        ).tolist()
-                        background_tfidf = tfidf_vectorizer.transform(background_data)
+                    with col_shap:
+                        st.subheader("📊 SHAP Analysis")
+                        with st.spinner("Generating SHAP explanation..."):
+                            shap_result = generate_shap_explanation(
+                                news_article, tfidf_vectorizer, model, train_df_processed
+                            )
                         
-                        # Initialize SHAP explainer
-                        shap_explainer = shap.KernelExplainer(
-                            model.predict_proba, 
-                            background_tfidf,
-                            link="logit"
-                        )
-                        
-                        # Prepare input
-                        cleaned_input = preprocess_text(news_article)
-                        tfidf_input = tfidf_vectorizer.transform([cleaned_input])
-                        
-                        # Get SHAP values
-                        shap_values = shap_explainer.shap_values(tfidf_input, nsamples=100)
-                        
-                        # Get feature names
-                        feature_names = tfidf_vectorizer.get_feature_names_out()
-                        
-                        # Get predicted class
-                        predicted_class = model.predict(tfidf_input)[0]
-                        
-                        st.markdown("#### SHAP Explanation")
-                        st.markdown(f"Showing explanation for class: **{'Real' if predicted_class == 1 else 'Fake'}**")
-                        
-                        # Create waterfall plot
-                        fig, ax = plt.subplots(figsize=(10, 8))
-                        shap.plots.waterfall(
-                            shap.Explanation(
-                                values=shap_values[predicted_class][0],
-                                base_values=shap_explainer.expected_value[predicted_class],
-                                data=tfidf_input.toarray()[0],
-                                feature_names=feature_names
-                            ),
-                            max_display=15,
-                            show=False
-                        )
-                        st.pyplot(fig)
-                        plt.close()
-                        
-                except Exception as e:
-                    st.error(f"Error generating SHAP explanation: {str(e)}")
-                    st.info("SHAP computation can be intensive. Try with a shorter article or reduce background samples.")
-        else:
-            st.warning("⚠️ Please enter a news article first.")
-
-# Footer
-st.markdown("---")
-st.markdown("""
-### About the Model
-- **Algorithm**: Multinomial Naive Bayes
-- **Features**: TF-IDF vectors (top 5000 features)
-- **Preprocessing**: Lowercase, remove punctuation, stopword removal, lemmatization
-
-### How to Use
-1. Enter or paste a news article in the text area above
-2. Click "Analyze Article" to get the prediction
-3. Click "Generate LIME Explanation" or "Generate SHAP Explanation" to understand why the model made its decision
-
-**Note**: LIME and SHAP explanations may take some time to generate, especially for longer articles.
-""")
+                        if shap_result:
+                            shap_values, feature_names, tfidf_input, predicted_class = shap_result
+                            shap_fig = plot_shap_explanation(
+                                shap_values, feature_names, tfidf_input, predicted_class
+                            )
+                            if shap_fig:
+                                st.plotly_chart(shap_fig, use_container_width=True)
+                            else:
+                                st.info("No significant features found for SHAP analysis.")
+    else:
+        st.warning("⚠️ Please enter a news article to analyze.")
