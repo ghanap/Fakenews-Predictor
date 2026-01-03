@@ -231,7 +231,7 @@ def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, pre
                 color=colors[::-1],
                 line=dict(color='rgba(255,255,255,0.3)', width=1)
             ),
-            text=[f'{v:.3f}' for v in top_shap_values[::-1]],
+            text=[f'{float(v):.3f}' for v in top_shap_values[::-1]]
             textposition='outside',
             hovertemplate='<b>%{y}</b><br>SHAP Value: %{x:.4f}<extra></extra>'
         ))
