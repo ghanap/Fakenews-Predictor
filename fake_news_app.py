@@ -340,30 +340,30 @@ def generate_shap_explanation(news_article, vectorizer, model, train_df):
         tfidf_input = vectorizer.transform([cleaned_text])
         feature_names = vectorizer.get_feature_names_out()
         
+        # Determine the class for explanation
         probs = model.predict_proba(tfidf_input)[0]
         predicted_class = np.argmax(probs)
 
-        # Use a smaller background sample to speed up computation
-        background_sample = vectorizer.transform(train_df['cleaned_text'].head(50)).toarray()
-        
-        # FIX: Explicitly use the KernelExplainer or increase max_evals
-        # KernelExplainer is often more flexible for scikit-learn models like Naive Bayes
+        # Use KernelExplainer with a small background sample
+        background_sample = vectorizer.transform(train_df['cleaned_text'].head(30)).toarray()
         explainer = shap.KernelExplainer(model.predict_proba, background_sample)
         
-        # We limit the number of features explained to avoid the 6571 limit
-        # This focuses SHAP only on the most important parts of the text
+        # Generate SHAP values (nsamples=100 for speed)
+        # tfidf_input.toarray() ensures compatibility
         shap_values = explainer.shap_values(tfidf_input.toarray(), nsamples=100)
 
-        # Handle indexing for KernelExplainer output (usually a list for classes)
+        # --- CRITICAL FIX: EXTRACING THE 1D SCALARS ---
+        # KernelExplainer returns a list (per class) of 2D arrays (samples, features)
         if isinstance(shap_values, list):
-            shap_values_for_class = shap_values[predicted_class][0]
+            # Take values for predicted class, first (and only) sample row
+            shap_vals_1d = np.array(shap_values[predicted_class]).flatten()
         else:
-            shap_values_for_class = shap_values[0]
+            shap_vals_1d = np.array(shap_values).flatten()
 
-        return shap_values_for_class, feature_names, tfidf_input, predicted_class
+        return shap_vals_1d, feature_names, tfidf_input, predicted_class
 
     except Exception as e:
-        st.error(f"Computation Error in SHAP: {str(e)}")
+        st.error(f"SHAP Computation Error: {str(e)}")
         return None
 # --- Streamlit UI ---
 st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="📰")
