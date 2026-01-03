@@ -331,7 +331,7 @@ def generate_lime_explanation(news_article, vectorizer, model):
         return None
 
 # --- SHAP Explanation Function ---
-def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, predicted_class):
+def generate_shap_explanation(shap_values_for_class, feature_names, tfidf_input, predicted_class):
     try:
         # 1. Force conversion to a 1D array
         # Given your (2,2) shape, we need to ensure we have one value per feature
