@@ -345,12 +345,12 @@ def generate_shap_explanation(news_article, vectorizer, model, train_df):
         predicted_class = np.argmax(probs)
 
         # Use KernelExplainer with a small background sample
-        background_sample = vectorizer.transform(train_df['cleaned_text'].head(30)).toarray()
+        background_sample = vectorizer.transform(train_df['cleaned_text'].head(100)).toarray()
         explainer = shap.KernelExplainer(model.predict_proba, background_sample)
         
         # Generate SHAP values (nsamples=100 for speed)
         # tfidf_input.toarray() ensures compatibility
-        shap_values = explainer.shap_values(tfidf_input.toarray(), nsamples=500)
+        shap_values = explainer.shap_values(tfidf_input.toarray(), nsamples=100)
 
         # --- CRITICAL FIX: EXTRACING THE 1D SCALARS ---
         # KernelExplainer returns a list (per class) of 2D arrays (samples, features)
@@ -365,6 +365,7 @@ def generate_shap_explanation(news_article, vectorizer, model, train_df):
     except Exception as e:
         st.error(f"SHAP Computation Error: {str(e)}")
         return None
+
 # --- Streamlit UI ---
 st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="📰")
 
