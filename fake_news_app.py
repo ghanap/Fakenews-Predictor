@@ -332,46 +332,40 @@ def generate_lime_explanation(news_article, vectorizer, model):
 
 # --- SHAP Explanation Function ---
 def generate_shap_explanation(news_article, vectorizer, model, train_df):
-    """Calculates SHAP values using a background sample from training data."""
     try:
         if train_df is None or len(train_df) == 0:
             return None
 
-        # 1. Prepare input
         cleaned_text = preprocess_text(news_article)
         tfidf_input = vectorizer.transform([cleaned_text])
         feature_names = vectorizer.get_feature_names_out()
         
-        # 2. Get Predicted Class
         probs = model.predict_proba(tfidf_input)[0]
         predicted_class = np.argmax(probs)
 
-        # 3. Create Background Data (CRITICAL to avoid all zeros)
-        # We take a small sample of the training data as a reference
-        background_sample = vectorizer.transform(train_df['cleaned_text'].head(100)).toarray()
+        # Use a smaller background sample to speed up computation
+        background_sample = vectorizer.transform(train_df['cleaned_text'].head(50)).toarray()
         
-        # 4. Initialize Explainer
-        # For Naive Bayes or general models, Explainer + background data is robust
-        explainer = shap.Explainer(model.predict_proba, background_sample)
+        # FIX: Explicitly use the KernelExplainer or increase max_evals
+        # KernelExplainer is often more flexible for scikit-learn models like Naive Bayes
+        explainer = shap.KernelExplainer(model.predict_proba, background_sample)
         
-        # 5. Calculate SHAP values for this specific article
-        # We use a dense version of the input
-        shap_values = explainer(tfidf_input.toarray())
+        # We limit the number of features explained to avoid the 6571 limit
+        # This focuses SHAP only on the most important parts of the text
+        shap_values = explainer.shap_values(tfidf_input.toarray(), nsamples=100)
 
-        # 6. Extract values for the predicted class
-        # shap_values.values shape is (1, n_features, 2)
-        # We want the values for the predicted_class
-        if len(shap_values.values.shape) == 3:
-            shap_values_for_class = shap_values.values[0, :, predicted_class]
+        # Handle indexing for KernelExplainer output (usually a list for classes)
+        if isinstance(shap_values, list):
+            shap_values_for_class = shap_values[predicted_class][0]
         else:
-            shap_values_for_class = shap_values.values[0]
+            shap_values_for_class = shap_values[0]
 
         return shap_values_for_class, feature_names, tfidf_input, predicted_class
 
     except Exception as e:
         st.error(f"Computation Error in SHAP: {str(e)}")
         return None
-        # --- Streamlit UI ---
+# --- Streamlit UI ---
 st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="📰")
 
 # Custom CSS
