@@ -223,7 +223,8 @@ def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, pre
         # Create horizontal bar chart
         fig = go.Figure()
         
-       
+        st.write(f"Shape of first value: {getattr(top_shap_values[0], 'shape', 'No shape')}")
+        st.write(f"Value itself: {top_shap_values[0]}")
         fig.add_trace(go.Bar(
             y=top_features[::-1],
             x=top_shap_values[::-1],
