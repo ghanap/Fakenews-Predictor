@@ -508,6 +508,8 @@ if st.button("🔍 Analyze Article", type="primary"):
                             
                                 if shap_result:
                                     shap_values_for_class, feature_names, tfidf_input, predicted_class = shap_result
+                                    st.write(f"Sum of SHAP values: {np.sum(shap_values_for_class)}")
+                                    st.write(f"Max SHAP value: {np.max(np.abs(shap_values_for_class))}")
                                     shap_fig = plot_shap_explanation(
                                         shap_values_for_class, feature_names, tfidf_input, predicted_class
                                     )
