@@ -350,7 +350,7 @@ def generate_shap_explanation(news_article, vectorizer, model, train_df):
         
         # Generate SHAP values (nsamples=100 for speed)
         # tfidf_input.toarray() ensures compatibility
-        shap_values = explainer.shap_values(tfidf_input.toarray(), nsamples=100)
+        shap_values = explainer.shap_values(tfidf_input.toarray(), nsamples=500)
 
         # --- CRITICAL FIX: EXTRACING THE 1D SCALARS ---
         # KernelExplainer returns a list (per class) of 2D arrays (samples, features)
