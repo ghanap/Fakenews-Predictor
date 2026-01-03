@@ -333,53 +333,32 @@ def generate_lime_explanation(news_article, vectorizer, model):
 # --- SHAP Explanation Function ---
 def generate_shap_explanation(shap_values_for_class, feature_names, tfidf_input, predicted_class):
     try:
-        # 1. Force conversion to a 1D array
-        # Given your (2,2) shape, we need to ensure we have one value per feature
-        shap_vals = np.array(shap_values_for_class)
-        
-        # If it's a 3D array (N_features, 2, 2), we extract the main effect
-        if shap_vals.ndim == 3:
-            # Taking [:, 1, 1] based on your previous 'Value itself' debug
-            shap_vals = shap_vals[:, 1, 1] 
-        elif shap_vals.ndim > 1:
-            shap_vals = shap_vals.flatten()
-
-        # 2. Identify words present in the article
+        # Get the actual words present in the article
         tfidf_dense = tfidf_input.toarray()[0]
         non_zero_idx = tfidf_dense.nonzero()[0]
         
         if len(non_zero_idx) == 0:
             return None
-
-        # 3. Match SHAP values to the words in the text
-        # This is the critical step to ensure we don't just see zeros
+        
+        # Flatten the SHAP values to ensure they are scalars for the bar chart
+        shap_vals = np.array(shap_values_for_class).flatten()
+        
+        # Get values for words in the current text
         current_text_shap = shap_vals[non_zero_idx]
         
-        # 4. Sort by MAGNITUDE to find the most influential words
-        # We want to see words that pull the prediction the hardest
+        # Sort by absolute impact (magnitude)
         n_features = min(15, len(non_zero_idx))
-        top_indices_in_filtered = np.argsort(np.abs(current_text_shap))[-n_features:]
+        top_indices = np.argsort(np.abs(current_text_shap))[-n_features:]
         
-        # 5. Map back to names and values for the bar chart
-        top_features = [feature_names[non_zero_idx[i]] for i in top_indices_in_filtered]
-        top_vals = [current_text_shap[i] for i in top_indices_in_filtered]
-
-        # 6. Create the Figure
-        fig = go.Figure()
-        colors = ['#ef4444' if v < 0 else '#10b981' for v in top_vals]
+        # Prepare data for Plotly
+        top_features = [feature_names[non_zero_idx[i]] for i in top_indices]
+        top_vals = [current_text_shap[i] for i in top_indices]
         
-        fig.add_trace(go.Bar(
-            y=top_features,
-            x=top_vals,
-            orientation='h',
-            marker=dict(color=colors),
-            text=[f'{float(v):.4f}' for v in top_vals], # Increased precision to .4f
-            textposition='outside'
-        ))
+        # Create the figure...
+        # (Use the Plotly code from the previous step)
         
-        # ... rest of your layout code ...
-        return fig
     except Exception as e:
+        st.error(f"SHAP Error: {e}")
         return None
 # --- Streamlit UI ---
 st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="📰")
