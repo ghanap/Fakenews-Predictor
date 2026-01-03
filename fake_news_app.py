@@ -331,8 +331,9 @@ def generate_lime_explanation(news_article, vectorizer, model):
         return None
 
 # --- SHAP Explanation Function ---
-ddef generate_shap_explanation(news_article, vectorizer, model, train_df):
-    """Calculates SHAP values and ensures a 1D output for plotting."""
+
+def generate_shap_explanation(news_article, vectorizer, model, train_df):
+    """Generates SHAP explanation and returns a SHAP Explanation object."""
     try:
         if train_df is None or len(train_df) == 0:
             return None
@@ -341,34 +342,248 @@ ddef generate_shap_explanation(news_article, vectorizer, model, train_df):
         tfidf_input = vectorizer.transform([cleaned_text])
         feature_names = vectorizer.get_feature_names_out()
         
-        # Get prediction to select the correct class for explanation
+        # Get the predicted class
         probs = model.predict_proba(tfidf_input)[0]
         predicted_class = np.argmax(probs)
 
-        # 1. Use a small background sample for context
-        # 50 samples is generally enough for stable text explanations
-        background_sample = vectorizer.transform(train_df['cleaned_text'].head(50)).toarray()
+        # Use a small representative background sample
+        # Using a small fixed sample for speed in Streamlit
+        background_sample = vectorizer.transform(train_df['cleaned_text'].sample(min(50, len(train_df)))).toarray()
         
-        # 2. KernelExplainer is most robust for Naive Bayes/TF-IDF pipelines
+        # KernelExplainer for MultinomialNB
         explainer = shap.KernelExplainer(model.predict_proba, background_sample)
         
-        # 3. Generate values (nsamples=100 is fast for Streamlit)
-        # Using .toarray() is essential for sparse TF-IDF input
+        # Generate SHAP values
         shap_values = explainer.shap_values(tfidf_input.toarray(), nsamples=100)
 
-        # 4. Extract 1D values for the specific class
-        # KernelExplainer returns a list of arrays (one per class)
+        # Robustly handle SHAP values (can be list or array depending on version/model)
         if isinstance(shap_values, list):
-            # Shape is (samples, features), we take the first row and flatten
-            shap_vals_1d = np.array(shap_values[predicted_class]).flatten()
+            # If it's a list, select the array for the predicted class
+            if predicted_class < len(shap_values):
+                vals = shap_values[predicted_class]
+            else:
+                vals = shap_values[0]
+            # Handle list of arrays case where each array is (1, N)
+            if isinstance(vals, np.ndarray) and vals.ndim > 1:
+                vals = vals[0]
+        elif isinstance(shap_values, np.ndarray):
+            # If it's a single array, handle dimensions
+            if shap_values.ndim == 3: # (samples, features, classes) or similar
+                # This depends on version, usually (n_samples, n_features, n_classes)
+                # or (n_classes, n_samples, n_features)
+                if shap_values.shape[0] == 2: # classes first
+                    vals = shap_values[predicted_class][0]
+                else: # classes last
+                    vals = shap_values[0, :, predicted_class]
+            elif shap_values.ndim == 2: # (samples, features)
+                # Likely only one class returned
+                vals = shap_values[0]
+            else:
+                vals = shap_values.flatten()
         else:
-            shap_vals_1d = np.array(shap_values).flatten()
+            vals = np.array(shap_values).flatten()
 
-        return shap_vals_1d, feature_names, tfidf_input, predicted_class
+        expected_val = explainer.expected_value
+        if isinstance(expected_val, (list, np.ndarray)):
+            if len(expected_val) > predicted_class:
+                expected_val = expected_val[predicted_class]
+            else:
+                expected_val = expected_val[0]
+        
+        explanation = shap.Explanation(
+            values=vals,
+            base_values=float(expected_val),
+            data=tfidf_input.toarray()[0],
+            feature_names=feature_names
+        )
+
+        return {
+            'explanation': explanation,
+            'predicted_class': predicted_class,
+            'tfidf_input': tfidf_input
+        }
 
     except Exception as e:
-        st.error(f"SHAP Error: {str(e)}")
+        st.error(f"SHAP Computation Error: {str(e)}")
         return None
+
+def plot_shap_explanation(shap_exp_dict):
+    """Creates a custom Plotly bar chart from a SHAP explanation."""
+    try:
+        explanation = shap_exp_dict['explanation']
+        tfidf_input = shap_exp_dict['tfidf_input']
+        
+        # 1. Get indices of words actually present in the current article
+        tfidf_dense = tfidf_input.toarray()[0]
+        non_zero_idx = tfidf_dense.nonzero()[0]
+        
+        if len(non_zero_idx) == 0:
+            return None
+
+        # 2. Match SHAP values to the words in the text
+        vals = explanation.values[non_zero_idx]
+        feature_names = np.array(explanation.feature_names)[non_zero_idx]
+        
+        # 3. Sort by magnitude to find the top influential words
+        n_features = min(15, len(vals))
+        top_indices = np.argsort(np.abs(vals))[-n_features:]
+        
+        top_features = feature_names[top_indices]
+        top_vals = vals[top_indices]
+
+        # 4. Create the Bar Chart
+        colors = ['#ef4444' if v < 0 else '#10b981' for v in top_vals]
+        fig = go.Figure()
+        
+        fig.add_trace(go.Bar(
+            y=top_features,
+            x=top_vals,
+            orientation='h',
+            marker=dict(color=colors, line=dict(color='rgba(255,255,255,0.3)', width=1)),
+            text=[f'{float(v):.4f}' for v in top_vals],
+            textposition='outside'
+        ))
+
+        fig.update_layout(  
+            template='plotly_dark',
+            title="Feature Impact (SHAP)",
+            xaxis_title="Impact on Prediction Probability",
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            margin=dict(l=20, r=20, t=50, b=20),
+            height=400
+        )
+        return fig
+    except Exception as e:
+        st.error(f"Plotting Error: {e}")
+        return None
+
+def display_native_shap_plots(shap_exp_dict):
+    """Displays native SHAP waterfall and force plots."""
+    try:
+        explanation = shap_exp_dict['explanation']
+        
+        # Waterfall Plot
+        st.write("#### 🌊 Waterfall Plot")
+        st.info("Shows how each word 'pushes' the prediction from the average (base value) to the final result.")
+        fig, ax = plt.subplots(figsize=(10, 6))
+        fig.patch.set_facecolor('#1e1e1e')
+        ax.set_facecolor('#1e1e1e')
+        
+        shap.plots.waterfall(explanation, max_display=10, show=False)
+        
+        # Theme adjustments
+        plt.gcf().axes[0].tick_params(colors='white')
+        plt.gcf().axes[0].xaxis.label.set_color('white')
+        plt.gcf().axes[0].title.set_color('white')
+        st.pyplot(fig)
+        plt.close(fig)
+
+        # Force Plot (Javascript-based)
+        st.write("#### ⚡ Force Plot")
+        st.info("Interactive view of how features contribute to the score.")
+        
+        # Capture the interactive HTML using shap.save_html
+        import io
+        shap_buffer = io.StringIO()
+        
+        # Generate the force plot object
+        p = shap.force_plot(
+            explanation.base_values, 
+            explanation.values, 
+            features=explanation.data, 
+            feature_names=explanation.feature_names,
+            matplotlib=False,
+            show=False
+        )
+        
+        # Save to buffer
+        shap.save_html(shap_buffer, p)
+        shap_html = shap_buffer.getvalue()
+        
+        # Wrap in a white container for visibility of labels
+        styled_html = f"""
+        <div style="background-color: white; padding: 10px; border-radius: 5px; min-height: 150px;">
+            {shap_html}
+        </div>
+        """
+        st.components.v1.html(styled_html, height=200, scrolling=True)
+
+    except Exception as e:
+        st.error(f"Native Plotting Error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+
+@st.cache_data
+def get_global_shap_summary(_vectorizer, _model, _train_df):
+    """Computes global SHAP summary for a sample of data."""
+    try:
+        if _train_df is None or len(_train_df) == 0:
+            return None
+            
+        # Use a small sample for speed in the UI
+        sample_size = min(30, len(_train_df))
+        sample_df = _train_df.sample(sample_size, random_state=42)
+        X_sample = _vectorizer.transform(sample_df['cleaned_text']).toarray()
+        
+        # Using a fixed background for global consistency
+        background = _vectorizer.transform(_train_df['cleaned_text'].head(10)).toarray()
+        explainer = shap.KernelExplainer(_model.predict_proba, background)
+        
+        # nsamples controls the accuracy vs speed
+        shap_values = explainer.shap_values(X_sample, nsamples=100)
+        
+        # Determine the target class index
+        real_class_idx = 1 if 1 in _model.classes_ else 0
+        
+        # Robustly extract the 2D array (samples, features)
+        if isinstance(shap_values, list):
+            target_vals = shap_values[min(real_class_idx, len(shap_values)-1)]
+        elif isinstance(shap_values, np.ndarray):
+            if shap_values.ndim == 3: # (samples, features, classes)
+                target_vals = shap_values[:, :, real_class_idx]
+            else:
+                target_vals = shap_values
+        else:
+            target_vals = np.array(shap_values)
+
+        # Create figure explicitly
+        fig = plt.figure(figsize=(10, 6))
+        fig.patch.set_facecolor('#1e1e1e')
+        
+        # Force a clear of the current figure state
+        plt.clf()
+        
+        shap.summary_plot(
+            target_vals, 
+            X_sample, 
+            feature_names=_vectorizer.get_feature_names_out(),
+            show=False,
+            max_display=12,
+            plot_type="dot"
+        )
+        
+        # Theme adjustments for Dark Mode
+        ax = plt.gca()
+        ax.set_facecolor('#1e1e1e')
+        ax.tick_params(colors='white', labelsize=10)
+        ax.xaxis.label.set_color('white')
+        ax.yaxis.label.set_color('white')
+        
+        # Find the colorbar and fix its labels
+        for child in fig.get_children():
+            if isinstance(child, plt.Axes) and child != ax:
+                child.tick_params(colors='white')
+                child.yaxis.label.set_color('white')
+
+        plt.tight_layout()
+        return fig
+        
+    except Exception as e:
+        # We can't use st.error here easily because it's cached, but we can log
+        print(f"Global SHAP analysis failed: {str(e)}")
+        return None
+
 # --- Streamlit UI ---
 st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="📰")
 
@@ -506,22 +721,45 @@ if st.button("🔍 Analyze Article", type="primary"):
                                 )
                             
                                 if shap_result:
-                                    shap_values_for_class, feature_names, tfidf_input, predicted_class = shap_result
-                                    st.write(f"Sum of SHAP values: {np.sum(shap_values_for_class)}")
-                                    st.write(f"Max SHAP value: {np.max(np.abs(shap_values_for_class))}")
-                                    shap_fig = plot_shap_explanation(
-                                        shap_values_for_class, feature_names, tfidf_input, predicted_class
-                                    )
+                                    # Custom Plotly chart
+                                    shap_fig = plot_shap_explanation(shap_result)
                                     if shap_fig:
                                         st.plotly_chart(shap_fig, use_container_width=True)
-                                    else:
-                                        st.info("No significant features found for SHAP analysis.")
+                                    
+                                    # Native plots (Waterfall & Force)
+                                    with st.expander("🔍 Detailed SHAP Plots", expanded=True):
+                                        display_native_shap_plots(shap_result)
                                 else:
                                     st.info("SHAP analysis unavailable. Training data may be missing.")
                             except Exception as e:
                                 st.error(f"Error generating SHAP analysis: {str(e)}")
                                 import traceback
                                 st.code(traceback.format_exc())
-                                st.info("SHAP analysis requires training data. Continuing with LIME only.")
+
+                    # --- Global Insights ---
+                    st.markdown("---")
+                    st.header("🌐 Global Model Insights")
+                    col_global1, col_global2 = st.columns([1, 1.5])
+                    
+                    with col_global1:
+                        st.write("### How the Model Learns")
+                        st.write("""
+                        This section shows the general patterns the model has learned from the training data.
+                        
+                        - **SHAP Summary Plot**: Shows the most influential words across many articles.
+                        - **Interpretation**: Red indicates higher TF-IDF values (word frequency), blue indicates lower. 
+                          The position on the X-axis shows the impact on the 'Real' prediction.
+                        """)
+                    
+                    with col_global2:
+                        if train_df_processed is not None:
+                            with st.spinner("Generating Global SHAP Summary..."):
+                                global_fig = get_global_shap_summary(tfidf_vectorizer, model, train_df_processed)
+                                if global_fig:
+                                    st.pyplot(global_fig)
+                                else:
+                                    st.info("Global summary unavailable.")
+                        else:
+                            st.info("Global summary requires training data.")
     else:
         st.warning("⚠️ Please enter a news article to analyze.")
