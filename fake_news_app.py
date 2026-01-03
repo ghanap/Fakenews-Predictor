@@ -331,36 +331,47 @@ def generate_lime_explanation(news_article, vectorizer, model):
         return None
 
 # --- SHAP Explanation Function ---
-def generate_shap_explanation(shap_values_for_class, feature_names, tfidf_input, predicted_class):
+def generate_shap_explanation(news_article, vectorizer, model, train_df):
+    """Calculates SHAP values using a background sample from training data."""
     try:
-        # Get the actual words present in the article
-        tfidf_dense = tfidf_input.toarray()[0]
-        non_zero_idx = tfidf_dense.nonzero()[0]
-        
-        if len(non_zero_idx) == 0:
+        if train_df is None or len(train_df) == 0:
             return None
+
+        # 1. Prepare input
+        cleaned_text = preprocess_text(news_article)
+        tfidf_input = vectorizer.transform([cleaned_text])
+        feature_names = vectorizer.get_feature_names_out()
         
-        # Flatten the SHAP values to ensure they are scalars for the bar chart
-        shap_vals = np.array(shap_values_for_class).flatten()
+        # 2. Get Predicted Class
+        probs = model.predict_proba(tfidf_input)[0]
+        predicted_class = np.argmax(probs)
+
+        # 3. Create Background Data (CRITICAL to avoid all zeros)
+        # We take a small sample of the training data as a reference
+        background_sample = vectorizer.transform(train_df['cleaned_text'].head(100)).toarray()
         
-        # Get values for words in the current text
-        current_text_shap = shap_vals[non_zero_idx]
+        # 4. Initialize Explainer
+        # For Naive Bayes or general models, Explainer + background data is robust
+        explainer = shap.Explainer(model.predict_proba, background_sample)
         
-        # Sort by absolute impact (magnitude)
-        n_features = min(15, len(non_zero_idx))
-        top_indices = np.argsort(np.abs(current_text_shap))[-n_features:]
-        
-        # Prepare data for Plotly
-        top_features = [feature_names[non_zero_idx[i]] for i in top_indices]
-        top_vals = [current_text_shap[i] for i in top_indices]
-        
-        # Create the figure...
-        # (Use the Plotly code from the previous step)
-        
+        # 5. Calculate SHAP values for this specific article
+        # We use a dense version of the input
+        shap_values = explainer(tfidf_input.toarray())
+
+        # 6. Extract values for the predicted class
+        # shap_values.values shape is (1, n_features, 2)
+        # We want the values for the predicted_class
+        if len(shap_values.values.shape) == 3:
+            shap_values_for_class = shap_values.values[0, :, predicted_class]
+        else:
+            shap_values_for_class = shap_values.values[0]
+
+        return shap_values_for_class, feature_names, tfidf_input, predicted_class
+
     except Exception as e:
-        st.error(f"SHAP Error: {e}")
+        st.error(f"Computation Error in SHAP: {str(e)}")
         return None
-# --- Streamlit UI ---
+        # --- Streamlit UI ---
 st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="📰")
 
 # Custom CSS
