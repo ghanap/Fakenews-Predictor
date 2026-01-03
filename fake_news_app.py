@@ -222,7 +222,7 @@ def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, pre
         
         # Create horizontal bar chart
         fig = go.Figure()
-        t=[f'{float(v):.3f}' for v in top_shap_values[::-1]]
+        
         print(top_shap_value)
         fig.add_trace(go.Bar(
             y=top_features[::-1],
@@ -232,7 +232,7 @@ def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, pre
                 color=colors[::-1],
                 line=dict(color='rgba(255,255,255,0.3)', width=1)
             ),
-            text = t,
+            text = tt = [f'{float(v[0]):.3f}' for v in top_shap_values[::-1]],
             textposition='outside',
             hovertemplate='<b>%{y}</b><br>SHAP Value: %{x:.4f}<extra></extra>'
         ))
