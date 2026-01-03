@@ -165,8 +165,8 @@ def plot_lime_explanation(lime_exp, prediction):
         yaxis_title='',
         height=500,
         margin=dict(l=20, r=20, t=60, b=40),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
         font=dict(size=12, color='#374151'),
         xaxis=dict(
             showgrid=True,
@@ -178,7 +178,8 @@ def plot_lime_explanation(lime_exp, prediction):
         ),
         yaxis=dict(
             showgrid=False
-        )
+        ),
+        template='plotly_white'
     )
     
     return fig
@@ -194,7 +195,13 @@ def plot_shap_explanation(shap_values, feature_names, tfidf_input, predicted_cla
     
     # Get top features by absolute SHAP value
     shap_vals = shap_values[predicted_class][0]
-    top_indices = np.argsort(np.abs(shap_vals[non_zero_idx]))[-15:][::-1]
+    
+    # Get absolute SHAP values for non-zero features
+    abs_shap_non_zero = np.abs(shap_vals[non_zero_idx])
+    
+    # Get top N features (limit to available features)
+    n_features = min(15, len(non_zero_idx))
+    top_indices = np.argsort(abs_shap_non_zero)[-n_features:][::-1]
     
     top_features = [feature_names[non_zero_idx[i]] for i in top_indices]
     top_shap_values = [shap_vals[non_zero_idx[i]] for i in top_indices]
@@ -227,8 +234,8 @@ def plot_shap_explanation(shap_values, feature_names, tfidf_input, predicted_cla
         yaxis_title='',
         height=500,
         margin=dict(l=20, r=20, t=60, b=40),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
         font=dict(size=12, color='#374151'),
         xaxis=dict(
             showgrid=True,
@@ -240,7 +247,8 @@ def plot_shap_explanation(shap_values, feature_names, tfidf_input, predicted_cla
         ),
         yaxis=dict(
             showgrid=False
-        )
+        ),
+        template='plotly_white'
     )
     
     return fig
@@ -354,6 +362,20 @@ st.markdown("""
         border: 1px solid #e5e7eb;
         margin: 20px 0;
     }
+    /* Ensure Plotly charts are visible */
+    .js-plotly-plot {
+        background-color: white !important;
+    }
+    /* Fix for Streamlit columns */
+    [data-testid="stHorizontalBlock"] > div {
+        background-color: transparent !important;
+    }
+    /* Ensure plotly container has proper background */
+    .plotly {
+        background-color: white !important;
+        border-radius: 10px;
+        padding: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -430,29 +452,43 @@ if st.button("🔍 Analyze Article", type="primary"):
                         unsafe_allow_html=True
                     )
                     
+                    st.markdown("---")
+                    
                     # Create two columns for visualizations
                     col_lime, col_shap = st.columns(2)
                     
                     with col_lime:
                         st.subheader("🔍 LIME Analysis")
-                        lime_fig = plot_lime_explanation(lime_exp, prediction)
-                        st.plotly_chart(lime_fig, use_container_width=True)
+                        try:
+                            lime_fig = plot_lime_explanation(lime_exp, prediction)
+                            if lime_fig:
+                                st.plotly_chart(lime_fig, use_container_width=True)
+                            else:
+                                st.info("Unable to generate LIME visualization.")
+                        except Exception as e:
+                            st.error(f"Error displaying LIME chart: {str(e)}")
                     
                     with col_shap:
                         st.subheader("📊 SHAP Analysis")
                         with st.spinner("Generating SHAP explanation..."):
-                            shap_result = generate_shap_explanation(
-                                news_article, tfidf_vectorizer, model, train_df_processed
-                            )
-                        
-                        if shap_result:
-                            shap_values, feature_names, tfidf_input, predicted_class = shap_result
-                            shap_fig = plot_shap_explanation(
-                                shap_values, feature_names, tfidf_input, predicted_class
-                            )
-                            if shap_fig:
-                                st.plotly_chart(shap_fig, use_container_width=True)
-                            else:
-                                st.info("No significant features found for SHAP analysis.")
+                            try:
+                                shap_result = generate_shap_explanation(
+                                    news_article, tfidf_vectorizer, model, train_df_processed
+                                )
+                            
+                                if shap_result:
+                                    shap_values, feature_names, tfidf_input, predicted_class = shap_result
+                                    shap_fig = plot_shap_explanation(
+                                        shap_values, feature_names, tfidf_input, predicted_class
+                                    )
+                                    if shap_fig:
+                                        st.plotly_chart(shap_fig, use_container_width=True)
+                                    else:
+                                        st.info("No significant features found for SHAP analysis.")
+                                else:
+                                    st.info("SHAP analysis unavailable. Training data may be missing.")
+                            except Exception as e:
+                                st.error(f"Error generating SHAP analysis: {str(e)}")
+                                st.info("SHAP analysis requires training data. Continuing with LIME only.")
     else:
         st.warning("⚠️ Please enter a news article to analyze.")
