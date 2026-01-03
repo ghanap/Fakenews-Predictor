@@ -331,7 +331,8 @@ def generate_lime_explanation(news_article, vectorizer, model):
         return None
 
 # --- SHAP Explanation Function ---
-def generate_shap_explanation(news_article, vectorizer, model, train_df):
+ddef generate_shap_explanation(news_article, vectorizer, model, train_df):
+    """Calculates SHAP values and ensures a 1D output for plotting."""
     try:
         if train_df is None or len(train_df) == 0:
             return None
@@ -340,22 +341,25 @@ def generate_shap_explanation(news_article, vectorizer, model, train_df):
         tfidf_input = vectorizer.transform([cleaned_text])
         feature_names = vectorizer.get_feature_names_out()
         
-        # Determine the class for explanation
+        # Get prediction to select the correct class for explanation
         probs = model.predict_proba(tfidf_input)[0]
         predicted_class = np.argmax(probs)
 
-        # Use KernelExplainer with a small background sample
-        background_sample = vectorizer.transform(train_df['cleaned_text'].head(100)).toarray()
+        # 1. Use a small background sample for context
+        # 50 samples is generally enough for stable text explanations
+        background_sample = vectorizer.transform(train_df['cleaned_text'].head(50)).toarray()
+        
+        # 2. KernelExplainer is most robust for Naive Bayes/TF-IDF pipelines
         explainer = shap.KernelExplainer(model.predict_proba, background_sample)
         
-        # Generate SHAP values (nsamples=100 for speed)
-        # tfidf_input.toarray() ensures compatibility
+        # 3. Generate values (nsamples=100 is fast for Streamlit)
+        # Using .toarray() is essential for sparse TF-IDF input
         shap_values = explainer.shap_values(tfidf_input.toarray(), nsamples=100)
 
-        # --- CRITICAL FIX: EXTRACING THE 1D SCALARS ---
-        # KernelExplainer returns a list (per class) of 2D arrays (samples, features)
+        # 4. Extract 1D values for the specific class
+        # KernelExplainer returns a list of arrays (one per class)
         if isinstance(shap_values, list):
-            # Take values for predicted class, first (and only) sample row
+            # Shape is (samples, features), we take the first row and flatten
             shap_vals_1d = np.array(shap_values[predicted_class]).flatten()
         else:
             shap_vals_1d = np.array(shap_values).flatten()
@@ -363,9 +367,8 @@ def generate_shap_explanation(news_article, vectorizer, model, train_df):
         return shap_vals_1d, feature_names, tfidf_input, predicted_class
 
     except Exception as e:
-        st.error(f"SHAP Computation Error: {str(e)}")
+        st.error(f"SHAP Error: {str(e)}")
         return None
-
 # --- Streamlit UI ---
 st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="📰")
 
