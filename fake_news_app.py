@@ -214,7 +214,11 @@ def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, pre
         top_shap_values = [shap_vals[non_zero_idx[i]] for i in top_indices]
         
         # Create colors
-        colors = ['#ef4444' if v < 0 else '#10b981' for v in top_shap_values]
+        colors = [
+            '#ef4444' if np.mean(v) < 0 else '#10b981'
+            for v in top_shap_values
+        ]
+
         
         # Create horizontal bar chart
         fig = go.Figure()
