@@ -190,88 +190,87 @@ def plot_lime_explanation(lime_exp, prediction):
 def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, predicted_class):
     """Create a custom Plotly visualization for SHAP."""
     try:
-        # Get non-zero features from the input
-        non_zero_idx = tfidf_input.toarray()[0].nonzero()[0]
+        # 1. Get non-zero features from the input text
+        # Converting sparse matrix to dense to find indices of present words
+        tfidf_dense = tfidf_input.toarray()[0]
+        non_zero_idx = tfidf_dense.nonzero()[0]
         
         if len(non_zero_idx) == 0:
             return None
         
-        # shap_values_for_class is already filtered for the predicted class
-        # Shape should be (1, n_features) - we take the first row
-        if len(shap_values_for_class.shape) > 1:
-            shap_vals = shap_values_for_class[0]
-        else:
-            shap_vals = shap_values_for_class
+        # 2. Robustly handle SHAP value shapes
+        # We need a 1D array where each index corresponds to a feature
+        shap_vals = np.array(shap_values_for_class)
         
-        # Get absolute SHAP values for non-zero features only
-        abs_shap_non_zero = np.abs(shap_vals[non_zero_idx])
+        # If the array is (2, 2), (N, 2, 2), or similar, we flatten it
+        # to get individual scalar values
+        if shap_vals.ndim > 1:
+            shap_vals = shap_vals.flatten()
+            
+        # Ensure we don't have a mismatch between features and SHAP array length
+        # This can happen with interaction values
+        if len(shap_vals) > len(feature_names):
+            shap_vals = shap_vals[:len(feature_names)]
         
-        # Get top N features (limit to available features)
+        # 3. Filter and Sort
+        # Only look at SHAP values for words actually in the user's text
+        shap_vals_filtered = shap_vals[non_zero_idx]
+        abs_shap_non_zero = np.abs(shap_vals_filtered)
+        
+        # Get top N features (limit to 15)
         n_features = min(15, len(non_zero_idx))
-        top_indices = np.argsort(abs_shap_non_zero)[-n_features:][::-1]
+        top_indices_in_filtered = np.argsort(abs_shap_non_zero)[-n_features:]
         
-        top_features = [feature_names[non_zero_idx[i]] for i in top_indices]
-        top_shap_values = [shap_vals[non_zero_idx[i]] for i in top_indices]
+        # Map back to feature names and values
+        top_features = [feature_names[non_zero_idx[i]] for i in top_indices_in_filtered]
+        top_shap_vals_final = [shap_vals_filtered[i] for i in top_indices_in_filtered]
         
-        # Create colors
-        colors = [
-            '#ef4444' if np.mean(v) < 0 else '#10b981'
-            for v in top_shap_values
-        ]
+        # 4. Create Colors
+        # Use simple comparison since v is now guaranteed to be a scalar
+        colors = ['#ef4444' if v < 0 else '#10b981' for v in top_shap_vals_final]
 
-        
-        # Create horizontal bar chart
+        # 5. Build the Plotly Bar Chart
         fig = go.Figure()
         
-        st.write(f"Shape of first value: {getattr(top_shap_values[0], 'shape', 'No shape')}")
-        st.write(f"Value itself: {top_shap_values[0]}")
         fig.add_trace(go.Bar(
-            y=top_features[::-1],
-            x=top_shap_values[::-1],
+            y=top_features,
+            x=top_shap_vals_final,
             orientation='h',
             marker=dict(
-                color=colors[::-1],
+                color=colors,
                 line=dict(color='rgba(255,255,255,0.3)', width=1)
             ),
-            #text =  [f'{float(v[0]):.3f}' for v in top_shap_values[::-1]],
-            text = [f'{float(v[1, 1]):.3f}' for v in top_shap_values[::-1]],
+            # Each v is now a float, so formatting works perfectly
+            text=[f'{float(v):.3f}' for v in top_shap_vals_final],
             textposition='outside',
             hovertemplate='<b>%{y}</b><br>SHAP Value: %{x:.4f}<extra></extra>'
         ))
         
         fig.update_layout(
             title=dict(
-                text='Feature Impact',
+                text='Key Feature Impacts (SHAP)',
                 font=dict(size=20, color='#e5e7eb')
             ),
-            xaxis_title='SHAP Value',
+            xaxis_title='Impact on Prediction',
             yaxis_title='',
             height=500,
             margin=dict(l=20, r=20, t=60, b=40),
-            plot_bgcolor='#1e1e1e',
-            paper_bgcolor='#1e1e1e',
+            plot_bgcolor='rgba(0,0,0,0)', # Transparent to match container
+            paper_bgcolor='rgba(0,0,0,0)',
             font=dict(size=12, color='#e5e7eb'),
             xaxis=dict(
                 showgrid=True,
-                gridwidth=1,
                 gridcolor='rgba(255,255,255,0.1)',
                 zeroline=True,
-                zerolinewidth=2,
                 zerolinecolor='rgba(255,255,255,0.3)',
-                color='#e5e7eb'
-            ),
-            yaxis=dict(
-                showgrid=False,
-                color='#e5e7eb'
             ),
             template='plotly_dark'
         )
         
         return fig
+
     except Exception as e:
         st.error(f"Error creating SHAP plot: {str(e)}")
-        import traceback
-        st.code(traceback.format_exc())
         return None
 
 # --- Word Highlighting Function ---
