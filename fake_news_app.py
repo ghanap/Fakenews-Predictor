@@ -222,7 +222,7 @@ def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, pre
         
         # Create horizontal bar chart
         fig = go.Figure()
-        
+        print(top_shap_value)
         fig.add_trace(go.Bar(
             y=top_features[::-1],
             x=top_shap_values[::-1],
