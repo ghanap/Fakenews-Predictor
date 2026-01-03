@@ -159,99 +159,113 @@ def plot_lime_explanation(lime_exp, prediction):
     fig.update_layout(
         title=dict(
             text='Feature Importance',
-            font=dict(size=20, color='#1f2937')
+            font=dict(size=20, color='#e5e7eb')
         ),
         xaxis_title='Impact on Prediction',
         yaxis_title='',
         height=500,
         margin=dict(l=20, r=20, t=60, b=40),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(size=12, color='#374151'),
+        plot_bgcolor='#1e1e1e',
+        paper_bgcolor='#1e1e1e',
+        font=dict(size=12, color='#e5e7eb'),
         xaxis=dict(
             showgrid=True,
             gridwidth=1,
-            gridcolor='rgba(0,0,0,0.1)',
+            gridcolor='rgba(255,255,255,0.1)',
             zeroline=True,
             zerolinewidth=2,
-            zerolinecolor='rgba(0,0,0,0.3)'
+            zerolinecolor='rgba(255,255,255,0.3)',
+            color='#e5e7eb'
         ),
         yaxis=dict(
-            showgrid=False
+            showgrid=False,
+            color='#e5e7eb'
         ),
-        template='plotly_white'
+        template='plotly_dark'
     )
     
     return fig
 
 # --- Custom SHAP Visualization ---
-def plot_shap_explanation(shap_values, feature_names, tfidf_input, predicted_class):
+def plot_shap_explanation(shap_values_for_class, feature_names, tfidf_input, predicted_class):
     """Create a custom Plotly visualization for SHAP."""
-    # Get non-zero features
-    non_zero_idx = tfidf_input.toarray()[0].nonzero()[0]
-    
-    if len(non_zero_idx) == 0:
+    try:
+        # Get non-zero features from the input
+        non_zero_idx = tfidf_input.toarray()[0].nonzero()[0]
+        
+        if len(non_zero_idx) == 0:
+            return None
+        
+        # shap_values_for_class is already filtered for the predicted class
+        # Shape should be (1, n_features) - we take the first row
+        if len(shap_values_for_class.shape) > 1:
+            shap_vals = shap_values_for_class[0]
+        else:
+            shap_vals = shap_values_for_class
+        
+        # Get absolute SHAP values for non-zero features only
+        abs_shap_non_zero = np.abs(shap_vals[non_zero_idx])
+        
+        # Get top N features (limit to available features)
+        n_features = min(15, len(non_zero_idx))
+        top_indices = np.argsort(abs_shap_non_zero)[-n_features:][::-1]
+        
+        top_features = [feature_names[non_zero_idx[i]] for i in top_indices]
+        top_shap_values = [shap_vals[non_zero_idx[i]] for i in top_indices]
+        
+        # Create colors
+        colors = ['#ef4444' if v < 0 else '#10b981' for v in top_shap_values]
+        
+        # Create horizontal bar chart
+        fig = go.Figure()
+        
+        fig.add_trace(go.Bar(
+            y=top_features[::-1],
+            x=top_shap_values[::-1],
+            orientation='h',
+            marker=dict(
+                color=colors[::-1],
+                line=dict(color='rgba(255,255,255,0.3)', width=1)
+            ),
+            text=[f'{v:.3f}' for v in top_shap_values[::-1]],
+            textposition='outside',
+            hovertemplate='<b>%{y}</b><br>SHAP Value: %{x:.4f}<extra></extra>'
+        ))
+        
+        fig.update_layout(
+            title=dict(
+                text='Feature Impact',
+                font=dict(size=20, color='#e5e7eb')
+            ),
+            xaxis_title='SHAP Value',
+            yaxis_title='',
+            height=500,
+            margin=dict(l=20, r=20, t=60, b=40),
+            plot_bgcolor='#1e1e1e',
+            paper_bgcolor='#1e1e1e',
+            font=dict(size=12, color='#e5e7eb'),
+            xaxis=dict(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='rgba(255,255,255,0.1)',
+                zeroline=True,
+                zerolinewidth=2,
+                zerolinecolor='rgba(255,255,255,0.3)',
+                color='#e5e7eb'
+            ),
+            yaxis=dict(
+                showgrid=False,
+                color='#e5e7eb'
+            ),
+            template='plotly_dark'
+        )
+        
+        return fig
+    except Exception as e:
+        st.error(f"Error creating SHAP plot: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return None
-    
-    # Get top features by absolute SHAP value
-    shap_vals = shap_values[predicted_class][0]
-    
-    # Get absolute SHAP values for non-zero features
-    abs_shap_non_zero = np.abs(shap_vals[non_zero_idx])
-    
-    # Get top N features (limit to available features)
-    n_features = min(15, len(non_zero_idx))
-    top_indices = np.argsort(abs_shap_non_zero)[-n_features:][::-1]
-    
-    top_features = [feature_names[non_zero_idx[i]] for i in top_indices]
-    top_shap_values = [shap_vals[non_zero_idx[i]] for i in top_indices]
-    
-    # Create colors
-    colors = ['#ef4444' if v < 0 else '#10b981' for v in top_shap_values]
-    
-    # Create horizontal bar chart
-    fig = go.Figure()
-    
-    fig.add_trace(go.Bar(
-        y=top_features[::-1],
-        x=top_shap_values[::-1],
-        orientation='h',
-        marker=dict(
-            color=colors[::-1],
-            line=dict(color='rgba(0,0,0,0.3)', width=1)
-        ),
-        text=[f'{v:.3f}' for v in top_shap_values[::-1]],
-        textposition='outside',
-        hovertemplate='<b>%{y}</b><br>SHAP Value: %{x:.4f}<extra></extra>'
-    ))
-    
-    fig.update_layout(
-        title=dict(
-            text='Feature Impact',
-            font=dict(size=20, color='#1f2937')
-        ),
-        xaxis_title='SHAP Value',
-        yaxis_title='',
-        height=500,
-        margin=dict(l=20, r=20, t=60, b=40),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(size=12, color='#374151'),
-        xaxis=dict(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(0,0,0,0.1)',
-            zeroline=True,
-            zerolinewidth=2,
-            zerolinecolor='rgba(0,0,0,0.3)'
-        ),
-        yaxis=dict(
-            showgrid=False
-        ),
-        template='plotly_white'
-    )
-    
-    return fig
 
 # --- Word Highlighting Function ---
 def highlight_text_by_importance(text, lime_exp, max_words=50):
@@ -314,8 +328,7 @@ def generate_lime_explanation(news_article, vectorizer, model):
 def generate_shap_explanation(news_article, vectorizer, model, train_df):
     """Generate SHAP explanation."""
     try:
-        if train_df is None:
-            st.warning("Training data not available for SHAP background.")
+        if train_df is None or len(train_df) == 0:
             return None
         
         background_size = min(50, len(train_df))
@@ -331,14 +344,24 @@ def generate_shap_explanation(news_article, vectorizer, model, train_df):
         cleaned_input = preprocess_text(news_article)
         tfidf_input = vectorizer.transform([cleaned_input])
         
+        # Get SHAP values - this returns a list with one array per class
         shap_values = shap_explainer.shap_values(tfidf_input, nsamples=100)
         
         feature_names = vectorizer.get_feature_names_out()
         predicted_class = model.predict(tfidf_input)[0]
         
-        return shap_values, feature_names, tfidf_input, predicted_class
+        # shap_values is a list of arrays, one for each class
+        # We need to get the array for the predicted class
+        if isinstance(shap_values, list):
+            shap_values_for_class = shap_values[predicted_class]
+        else:
+            shap_values_for_class = shap_values
+        
+        return shap_values_for_class, feature_names, tfidf_input, predicted_class
     except Exception as e:
-        st.error(f"Error generating SHAP explanation: {str(e)}")
+        st.error(f"Error in SHAP calculation: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return None
 
 # --- Streamlit UI ---
@@ -348,23 +371,24 @@ st.set_page_config(page_title="Fake News Detector", layout="wide", page_icon="�
 st.markdown("""
 <style>
     .stMetric {
-        background-color: #f9fafb;
+        background-color: #1e1e1e;
         padding: 15px;
         border-radius: 10px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid #3a3a3a;
     }
     .highlighted-text {
         font-size: 16px;
         line-height: 1.8;
         padding: 20px;
-        background-color: #f9fafb;
+        background-color: #1e1e1e;
         border-radius: 10px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid #3a3a3a;
         margin: 20px 0;
+        color: #e5e7eb;
     }
-    /* Ensure Plotly charts are visible */
+    /* Ensure Plotly charts match dark theme */
     .js-plotly-plot {
-        background-color: white !important;
+        background-color: #1e1e1e !important;
     }
     /* Fix for Streamlit columns */
     [data-testid="stHorizontalBlock"] > div {
@@ -372,7 +396,7 @@ st.markdown("""
     }
     /* Ensure plotly container has proper background */
     .plotly {
-        background-color: white !important;
+        background-color: #1e1e1e !important;
         border-radius: 10px;
         padding: 10px;
     }
@@ -477,9 +501,9 @@ if st.button("🔍 Analyze Article", type="primary"):
                                 )
                             
                                 if shap_result:
-                                    shap_values, feature_names, tfidf_input, predicted_class = shap_result
+                                    shap_values_for_class, feature_names, tfidf_input, predicted_class = shap_result
                                     shap_fig = plot_shap_explanation(
-                                        shap_values, feature_names, tfidf_input, predicted_class
+                                        shap_values_for_class, feature_names, tfidf_input, predicted_class
                                     )
                                     if shap_fig:
                                         st.plotly_chart(shap_fig, use_container_width=True)
@@ -489,6 +513,8 @@ if st.button("🔍 Analyze Article", type="primary"):
                                     st.info("SHAP analysis unavailable. Training data may be missing.")
                             except Exception as e:
                                 st.error(f"Error generating SHAP analysis: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
                                 st.info("SHAP analysis requires training data. Continuing with LIME only.")
     else:
         st.warning("⚠️ Please enter a news article to analyze.")
