@@ -233,9 +233,12 @@ with tab_predict:
     }
 
     sample_choice = st.selectbox("Load a sample", list(SAMPLES.keys()), key="sample_select")
+
+    if sample_choice != "— select a sample —":
+        st.session_state["news_input"] = SAMPLES[sample_choice]
+
     news_text = st.text_area(
         "Paste article text here",
-        value=SAMPLES[sample_choice],
         height=200,
         placeholder="Paste a news article, headline, or paragraph…",
         label_visibility="collapsed",
@@ -413,7 +416,7 @@ with tab_how:
   <div style='font-family:Syne,sans-serif;font-size:1rem;font-weight:700;color:#f5f0e8;margin-bottom:0.75rem;'>
     {algo["title"]}
   </div>
-  <div style='font-size:0.7rem;color:#777;line-height:1.9;'>
+  <div style='font-size:0.7rem;color:#aaa;line-height:1.9;'>
     {m[0]}<br><br>
     <code style='color:#c3e88d;font-size:0.75rem;background:#0a0a0a;padding:0.2rem 0.5rem;display:inline-block;margin:0.25rem 0;'>{m[1]}</code><br><br>
     {m[2]}<br><br>
@@ -427,7 +430,7 @@ with tab_how:
     st.markdown("---")
     st.markdown("<div class='section-label'>Why This Approach?</div>", unsafe_allow_html=True)
     st.markdown("""
-<div style='font-size:0.72rem; color:#666; line-height:2; max-width:700px;'>
+<div style='font-size:0.72rem; color:#aaa; line-height:2; max-width:700px;'>
 Traditional fake news detectors use TF-IDF bag-of-words features, which treat each word independently and ignore context.
 SentenceBERT encodes the <em>meaning</em> of the full article into a single vector, letting the downstream classifiers
 focus on semantic patterns rather than surface vocabulary.<br><br>
