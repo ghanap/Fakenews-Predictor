@@ -3,7 +3,6 @@ import re
 import nltk
 import numpy as np
 import joblib
-import json
 import os
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
@@ -163,11 +162,7 @@ hr { border-color: #1e1e1e !important; }
 .st { color: #c3e88d; }
 .nm { color: #f78c6c; }
 
-/* ── Explainability ── */
-.lime-word { display: inline-block; padding: 2px 4px; margin: 1px; border-radius: 2px; font-size: 0.8rem; font-family: 'Space Mono', monospace; }
-.expl-card { border: 1px solid #1e1e1e; background: #111; padding: 1.5rem; margin-bottom: 1rem; }
-.expl-title { font-size: 0.6rem; letter-spacing: 0.25em; text-transform: uppercase; color: #555; margin-bottom: 1rem; }
-.expl-snippet { font-size: 0.72rem; color: #888; line-height: 1.7; margin-bottom: 1rem; border-left: 2px solid #222; padding-left: 0.75rem; font-style: italic; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -231,7 +226,6 @@ with st.sidebar:
     st.markdown("<div class='section-label'>Model Files</div>", unsafe_allow_html=True)
     mlp_path = st.text_input("MLP model path", value="mlp_classifier_model.pkl")
     sgd_path = st.text_input("SGD model path", value="sgd_classifier_model.pkl")
-    expl_path = st.text_input("Explanations JSON", value="explanations.json")
     st.markdown("---")
     st.markdown("<div class='section-label'>About</div>", unsafe_allow_html=True)
     st.markdown("""
@@ -270,7 +264,7 @@ with col3:
 st.markdown("---")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_predict, tab_explain, tab_how = st.tabs(["🔍 Analyze", "📊 Explainability", "📖 How It Works"])
+tab_predict, tab_how = st.tabs(["🔍 Analyze", "📖 How It Works"])
 
 
 # ╔══════════════════════════════════════════════════════════════╗
@@ -429,156 +423,6 @@ with tab_predict:
                 <thead><tr><th>Model</th><th>Verdict</th><th>Confidence</th></tr></thead>
                 <tbody>{table_rows}</tbody>
             </table>""", unsafe_allow_html=True)
-
-
-# ╔══════════════════════════════════════════════════════════════╗
-# ║  TAB 2 — EXPLAINABILITY                                     ║
-# ╚══════════════════════════════════════════════════════════════╝
-with tab_explain:
-    expl_file = Path(expl_path)
-
-    if not expl_file.exists():
-        st.warning("No `explanations.json` found. Run the Colab export notebook first, then upload the file alongside app.py.")
-        st.markdown("""
-<div style='font-size:0.75rem; color:#555; line-height:2; margin-top:1rem;'>
-<b style='color:#888'>To generate explanations:</b><br>
-1. Open your Colab notebook<br>
-2. Add and run the <b>LIME + SHAP export cells</b> (see export notebook)<br>
-3. Download <code>explanations.json</code><br>
-4. Place it in the same folder as <code>app.py</code>
-</div>""", unsafe_allow_html=True)
-    else:
-        with open(expl_file) as f:
-            expl_data = json.load(f)
-
-        st.markdown("<div class='section-label'>Confusion Matrix</div>", unsafe_allow_html=True)
-
-        import plotly.figure_factory as ff
-        import plotly.graph_objects as go
-
-        for model_key, model_label in [("mlp", "MLP"), ("sgd", "SGD")]:
-            if model_key not in expl_data.get("confusion", {}):
-                continue
-            cm = expl_data["confusion"][model_key]
-            fig = ff.create_annotated_heatmap(
-                z=[[cm["tn"], cm["fp"]], [cm["fn"], cm["tp"]]],
-                x=["Pred: Fake", "Pred: Real"],
-                y=["True: Fake", "True: Real"],
-                colorscale=[[0, "#0d0d0d"], [1, "#f0c040"]],
-                font_colors=["#e8e0d0"],
-            )
-            fig.update_layout(
-                title=dict(text=f"{model_label} — Confusion Matrix", font=dict(color="#e8e0d0", size=12)),
-                paper_bgcolor="#111", plot_bgcolor="#111",
-                font=dict(family="Space Mono", color="#e8e0d0"),
-                margin=dict(l=10, r=10, t=50, b=10),
-                height=300,
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("<div class='section-label'>Confidence Calibration</div>", unsafe_allow_html=True)
-        st.caption("How well does the model's confidence match its actual accuracy? A perfectly calibrated model follows the diagonal.")
-
-        if "calibration" in expl_data:
-            fig = go.Figure()
-            fig.add_shape(type="line", x0=0, y0=0, x1=1, y1=1,
-                          line=dict(color="#333", dash="dash", width=1))
-            colors = {"mlp": "#f0c040", "sgd": "#4caf82"}
-            for model_key, model_label in [("mlp", "MLP"), ("sgd", "SGD")]:
-                if model_key not in expl_data["calibration"]:
-                    continue
-                cal = expl_data["calibration"][model_key]
-                fig.add_trace(go.Scatter(
-                    x=cal["mean_predicted"], y=cal["fraction_positive"],
-                    mode="lines+markers", name=model_label,
-                    line=dict(color=colors[model_key], width=2),
-                    marker=dict(size=6),
-                ))
-            fig.update_layout(
-                paper_bgcolor="#111", plot_bgcolor="#0d0d0d",
-                font=dict(family="Space Mono", color="#e8e0d0", size=11),
-                xaxis=dict(title="Mean Predicted Confidence", gridcolor="#1e1e1e", range=[0,1]),
-                yaxis=dict(title="Fraction Positive (Actual)", gridcolor="#1e1e1e", range=[0,1]),
-                legend=dict(bgcolor="#111", bordercolor="#222"),
-                margin=dict(l=10, r=10, t=20, b=10),
-                height=350,
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("<div class='section-label'>SHAP — Top Feature Dimensions</div>", unsafe_allow_html=True)
-        st.caption("Mean absolute SHAP values across the 384 embedding dimensions. Higher = more influential to the prediction.")
-
-        if "shap" in expl_data:
-            for model_key, model_label in [("mlp", "MLP"), ("sgd", "SGD")]:
-                if model_key not in expl_data["shap"]:
-                    continue
-                shap_vals = expl_data["shap"][model_key]
-                top_dims = shap_vals[:20]
-                fig = go.Figure(go.Bar(
-                    x=[v["value"] for v in top_dims],
-                    y=[f"dim {v['dim']}" for v in top_dims],
-                    orientation="h",
-                    marker=dict(color="#f0c040" if model_key == "mlp" else "#4caf82"),
-                ))
-                fig.update_layout(
-                    title=dict(text=f"{model_label} — Top 20 SHAP Dimensions", font=dict(color="#e8e0d0", size=12)),
-                    paper_bgcolor="#111", plot_bgcolor="#0d0d0d",
-                    font=dict(family="Space Mono", color="#e8e0d0", size=10),
-                    xaxis=dict(title="Mean |SHAP|", gridcolor="#1e1e1e"),
-                    yaxis=dict(autorange="reversed"),
-                    margin=dict(l=10, r=10, t=40, b=10),
-                    height=400,
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("<div class='section-label'>LIME — Word-level Explanations</div>", unsafe_allow_html=True)
-        st.caption("Words highlighted in green pushed the prediction toward REAL. Red pushed toward FAKE. Intensity = strength of influence.")
-
-        if "lime" in expl_data:
-            samples = expl_data["lime"]
-            for i, sample in enumerate(samples[:6]):
-                model_label = sample.get("model", "").upper()
-                true_label = "REAL" if sample.get("true_label") == 1 else "FAKE"
-                pred_label = "REAL" if sample.get("pred_label") == 1 else "FAKE"
-                match = true_label == pred_label
-                border_color = "#4caf82" if match else "#e05a5a"
-
-                word_weights = {w: v for w, v in sample.get("word_weights", {}).items()}
-                max_abs = max(abs(v) for v in word_weights.values()) if word_weights else 1
-
-                text_tokens = sample.get("text", "").split()
-                highlighted = []
-                for word in text_tokens:
-                    w_clean = re.sub(r'[^a-z]', '', word.lower())
-                    weight = word_weights.get(w_clean, 0)
-                    intensity = int(min(abs(weight) / max_abs * 180, 180))
-                    if weight > 0.01:
-                        bg = f"rgba(76,175,130,{intensity/255:.2f})"
-                        fg = "#fff" if intensity > 100 else "#e8e0d0"
-                    elif weight < -0.01:
-                        bg = f"rgba(224,90,90,{intensity/255:.2f})"
-                        fg = "#fff" if intensity > 100 else "#e8e0d0"
-                    else:
-                        bg, fg = "transparent", "#777"
-                    highlighted.append(f"<span class='lime-word' style='background:{bg};color:{fg}'>{word}</span>")
-
-                highlighted_html = " ".join(highlighted)
-                correct_str = "✓ Correct" if match else "✗ Incorrect"
-                correct_color = "#4caf82" if match else "#e05a5a"
-
-                st.markdown(f"""
-                <div class="expl-card" style="border-left: 3px solid {border_color}">
-                    <div class="expl-title">
-                        Sample {i+1} · {model_label} ·
-                        True: <b style='color:#e8e0d0'>{true_label}</b> ·
-                        Pred: <b style='color:#e8e0d0'>{pred_label}</b> ·
-                        <span style='color:{correct_color}'>{correct_str}</span>
-                    </div>
-                    <div style='line-height:2.2;'>{highlighted_html}</div>
-                </div>""", unsafe_allow_html=True)
 
 
 # ╔══════════════════════════════════════════════════════════════╗
