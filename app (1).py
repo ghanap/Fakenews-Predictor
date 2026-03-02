@@ -132,7 +132,7 @@ with st.sidebar:
     st.markdown("<div class='section-label'>About</div>", unsafe_allow_html=True)
     st.markdown("""
 <div style='font-size:0.68rem; color:#555; line-height:1.8;'>
-<b style='color:#888'>Pipeline</b><br>Text → Lemmatize → SentenceBERT → Classifier<br><br>
+<b style='color:#888'>How it works</b><br>Text → Lemmatize → SentenceBERT → Classifier<br><br>
 <b style='color:#888'>Models</b><br>• MLP (neural network)<br>• SGD (linear / SVM-like)<br><br>
 <b style='color:#888'>Labels</b><br>
 <span style='color:#4caf82'>■</span> 1 = Real news<br>
@@ -303,98 +303,129 @@ with tab_predict:
 # ╔══════════════════════════════════════════════════════╗
 # ║  TAB 2 — HOW IT WORKS                               ║
 # ╚══════════════════════════════════════════════════════╝
-with tab_how:
-    st.markdown("<div class='section-label'>Algorithm Explanations</div>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:0.7rem;color:#555;margin-bottom:2rem;'>Code on the left · Math on the right</div>", unsafe_allow_html=True)
 
-    st.markdown("""
-<div class="algo-block">
-  <div class="algo-code"><pre><span class="cm"># 1. Load pretrained transformer</span>
-<span class="kw">from</span> sentence_transformers <span class="kw">import</span> SentenceTransformer
+ALGOS = [
+    {
+        "tag": "SentenceBERT · Embedding Model",
+        "title": "Sentence Embeddings via Siamese BERT",
+        "code": """# Load pretrained transformer
+from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer(<span class="st">"all-MiniLM-L6-v2"</span>)
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
-<span class="cm"># 2. Encode raw text → dense vector</span>
-texts = [<span class="st">"Senate passes infrastructure bill"</span>,
-         <span class="st">"Clinton arrested by feds"</span>]
+# Encode raw text → dense vector
+texts = ["Senate passes infrastructure bill",
+         "Clinton arrested by feds"]
 
 embeddings = model.encode(texts)
-<span class="cm"># shape: (2, 384)</span>
+# shape: (2, 384)
 
-<span class="cm"># 3. Cosine similarity between docs</span>
-sim = model.similarity(embeddings[<span class="nm">0</span>],
-                       embeddings[<span class="nm">1</span>])</pre></div>
-  <div class="algo-math">
-    <div class="algo-tag">SentenceBERT · Embedding Model</div>
-    <div class="algo-math-title">Sentence Embeddings via Siamese BERT</div>
-    <div class="algo-math-desc">
-      A pretrained BERT encoder maps variable-length text to a fixed-size dense vector via mean pooling over token representations:<br><br>
-      <code style="color:#c3e88d;font-size:0.75rem">u = MeanPool(BERT(tokens))</code><br><br>
-      Fine-tuned on sentence pairs so semantically similar sentences cluster close together in 384-dimensional space:<br><br>
-      <code style="color:#c3e88d;font-size:0.75rem">sim(u, v) = (u · v) / (‖u‖ ‖v‖)</code><br><br>
-      Why use it? Bag-of-words models miss meaning. "Bank robbery" and "financial institution heist" share no words but have near-identical embeddings.
-    </div>
-  </div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""
-<div class="algo-block">
-  <div class="algo-code"><pre><span class="kw">from</span> sklearn.neural_network <span class="kw">import</span> MLPClassifier
+# Cosine similarity between docs
+sim = model.similarity(embeddings[0],
+                       embeddings[1])""",
+        "math": (
+            "A pretrained BERT encoder maps variable-length text to a fixed-size dense vector "
+            "via mean pooling over token representations:",
+            "u = MeanPool(BERT(tokens))",
+            "Fine-tuned on sentence pairs so semantically similar sentences cluster close together "
+            "in 384-dimensional space:",
+            "sim(u, v) = (u · v) / (‖u‖ ‖v‖)",
+            'Why use it? Bag-of-words models miss meaning. "Bank robbery" and '
+            '"financial institution heist" share no words but have near-identical embeddings.',
+        ),
+    },
+    {
+        "tag": "MLP · Multi-Layer Perceptron",
+        "title": "Feedforward Neural Network",
+        "code": """from sklearn.neural_network import MLPClassifier
 
 mlp = MLPClassifier(
-    hidden_layer_sizes=(<span class="nm">256</span>, <span class="nm">128</span>),
-    activation=<span class="st">"relu"</span>,
-    solver=<span class="st">"adam"</span>,
-    max_iter=<span class="nm">200</span>,
-    random_state=<span class="nm">42</span>,
+    hidden_layer_sizes=(256, 128),
+    activation="relu",
+    solver="adam",
+    max_iter=200,
+    random_state=42,
 )
 
 mlp.fit(train_embeddings, train_labels)
 
 proba = mlp.predict_proba(test_embeddings)
-<span class="cm"># [[0.03, 0.97], [0.91, 0.09], ...]</span></pre></div>
-  <div class="algo-math">
-    <div class="algo-tag">MLP · Multi-Layer Perceptron</div>
-    <div class="algo-math-title">Feedforward Neural Network</div>
-    <div class="algo-math-desc">
-      Each layer applies a linear transformation followed by ReLU activation:<br><br>
-      <code style="color:#c3e88d;font-size:0.75rem">h⁽ˡ⁾ = ReLU(W⁽ˡ⁾ h⁽ˡ⁻¹⁾ + b⁽ˡ⁾)</code><br><br>
-      Final layer uses softmax to output class probabilities:<br><br>
-      <code style="color:#c3e88d;font-size:0.75rem">p(y=k | x) = exp(zₖ) / Σⱼ exp(zⱼ)</code><br><br>
-      Weights updated via backprop + Adam optimiser on cross-entropy loss. Can learn non-linear decision boundaries — useful if real vs. fake clusters aren't linearly separable.
-    </div>
-  </div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""
-<div class="algo-block">
-  <div class="algo-code"><pre><span class="kw">from</span> sklearn.linear_model <span class="kw">import</span> SGDClassifier
+# [[0.03, 0.97], [0.91, 0.09], ...]""",
+        "math": (
+            "Each layer applies a linear transformation followed by ReLU activation:",
+            "h⁽ˡ⁾ = ReLU(W⁽ˡ⁾ h⁽ˡ⁻¹⁾ + b⁽ˡ⁾)",
+            "Final layer uses softmax to output class probabilities:",
+            "p(y=k | x) = exp(zₖ) / Σⱼ exp(zⱼ)",
+            "Weights updated via backprop + Adam on cross-entropy loss. Can learn non-linear "
+            "decision boundaries — useful if real vs. fake clusters aren't linearly separable.",
+        ),
+    },
+    {
+        "tag": "SGD · Stochastic Gradient Descent",
+        "title": "Linear Classifier with SGD Optimisation",
+        "code": """from sklearn.linear_model import SGDClassifier
 
 sgd = SGDClassifier(
-    loss=<span class="st">"modified_huber"</span>,
-    class_weight=<span class="st">"balanced"</span>,
-    random_state=<span class="nm">42</span>,
+    loss="modified_huber",
+    class_weight="balanced",
+    random_state=42,
 )
 
 sgd.fit(train_embeddings, train_labels)
 
 scores = sgd.decision_function(test_emb)
-<span class="cm"># positive = leans real, negative = fake</span></pre></div>
-  <div class="algo-math">
-    <div class="algo-tag">SGD · Stochastic Gradient Descent</div>
-    <div class="algo-math-title">Linear Classifier with SGD Optimisation</div>
-    <div class="algo-math-desc">
-      Finds a hyperplane <b>w</b> separating real from fake in embedding space, minimising hinge loss one sample at a time:<br><br>
-      <code style="color:#c3e88d;font-size:0.75rem">L(w) = max(0, 1 − yᵢ (w · xᵢ + b))</code><br><br>
-      Weight update per sample:<br><br>
-      <code style="color:#c3e88d;font-size:0.75rem">w ← w − η ∇L(w)</code><br><br>
-      With 384-dim embeddings a linear boundary often works surprisingly well. Trains in a single pass — far faster than MLP — but can't capture non-linear patterns.
-    </div>
+# positive = leans real, negative = fake""",
+        "math": (
+            "Finds a hyperplane w separating real from fake in embedding space, "
+            "minimising hinge loss one sample at a time:",
+            "L(w) = max(0, 1 − yᵢ (w · xᵢ + b))",
+            "Weight update per sample:",
+            "w ← w − η ∇L(w)",
+            "With 384-dim embeddings a linear boundary often works well. Trains in a single pass "
+            "— far faster than MLP — but can't capture non-linear patterns.",
+        ),
+    },
+]
+
+with tab_how:
+    st.markdown("<div class='section-label'>Algorithm Explanations</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.7rem;color:#555;margin-bottom:1.5rem;'>Code on the left · Math on the right</div>", unsafe_allow_html=True)
+
+    for algo in ALGOS:
+        col_code, col_math = st.columns(2, gap="small")
+
+        with col_code:
+            st.markdown(
+                f"<div style='background:#0a0a0a;border:1px solid #222;border-right:none;padding:1.5rem;height:100%;'>",
+                unsafe_allow_html=True,
+            )
+            st.code(algo["code"], language="python")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_math:
+            m = algo["math"]
+            st.markdown(f"""
+<div style='background:#111;border:1px solid #222;padding:1.5rem;min-height:100%;'>
+  <div style='display:inline-block;font-size:0.55rem;letter-spacing:0.2em;text-transform:uppercase;
+              color:#f0c040;border:1px solid #3a3000;padding:0.15rem 0.5rem;margin-bottom:0.75rem;'>
+    {algo["tag"]}
+  </div>
+  <div style='font-family:Syne,sans-serif;font-size:1rem;font-weight:700;color:#f5f0e8;margin-bottom:0.75rem;'>
+    {algo["title"]}
+  </div>
+  <div style='font-size:0.7rem;color:#777;line-height:1.9;'>
+    {m[0]}<br><br>
+    <code style='color:#c3e88d;font-size:0.75rem;background:#0a0a0a;padding:0.2rem 0.5rem;display:inline-block;margin:0.25rem 0;'>{m[1]}</code><br><br>
+    {m[2]}<br><br>
+    <code style='color:#c3e88d;font-size:0.75rem;background:#0a0a0a;padding:0.2rem 0.5rem;display:inline-block;margin:0.25rem 0;'>{m[3]}</code><br><br>
+    {m[4]}
   </div>
 </div>""", unsafe_allow_html=True)
 
+        st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)
+
     st.markdown("---")
-    st.markdown("<div class='section-label'>Why This Pipeline?</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-label'>Why This Approach?</div>", unsafe_allow_html=True)
     st.markdown("""
 <div style='font-size:0.72rem; color:#666; line-height:2; max-width:700px;'>
 Traditional fake news detectors use TF-IDF bag-of-words features, which treat each word independently and ignore context.
@@ -404,7 +435,6 @@ Running both MLP and SGD lets us see whether the relationship between embeddings
 is linear (SGD performs well) or requires a more complex boundary (MLP outperforms SGD).
 Comparing the two is itself a diagnostic tool.
 </div>""", unsafe_allow_html=True)
-
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
