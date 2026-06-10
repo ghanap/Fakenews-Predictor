@@ -111,3 +111,23 @@ Fakenews-Predictor
 		<li><a href="https://flask.palletsprojects.com/">Flask documentation</a></li>
 	</ul>
 </div>
+
+## Model Evaluation (Classification Report)
+`	ext
+              precision    recall  f1-score   support
+
+           0       0.97      0.96      0.97     10387
+           1       0.96      0.97      0.96      9613
+
+    accuracy                           0.96     20000
+   macro avg       0.96      0.96      0.96     20000
+weighted avg       0.96      0.96      0.96     20000
+`
+
+## Hypothesis & Findings
+**Hypothesis:** We hypothesised that transformer-based embeddings would outperform TF-IDF because fake news relies on semantic framing, not keyword frequency. 
+**Finding:** SBERT confirmed this hypothesis, producing an 8.5pp accuracy improvement over the frequency-based baseline.
+
+## App Architecture
+- pp_flask.py: Original Flask-based web service for local inference.
+- pp_streamlit.py: Streamlit-based interactive web app incorporating the Transformer-based pipeline.
